@@ -1,0 +1,54 @@
+---
+# Setup AMQ Online (enmasse) via operator
+- name: Create OpenShift Objects for amq online
+  k8s:
+    state: present
+    merge_type:
+    - strategic-merge
+    - merge
+    definition: "{{ lookup('file', './files/amqonline_subscription.yaml' ) | from_yaml }}"
+
+# wait for amq (enmasse) CRDs
+- name: Wait for AddressSpacePlan CRD
+  k8s_facts:
+    api_version: apiextensions.k8s.io/v1beta1
+    kind: CustomResourceDefinition
+    name: addressspaceplans.admin.enmasse.io
+  register: r_address_crd
+  retries: 200
+  delay: 10
+  ignore_errors: yes
+  until: r_address_crd.resources | list | length == 1
+
+- name: Set temp dir
+  set_fact:
+    amq_online_tmp: "/tmp/amq-online"
+
+- name: Ensure example directory exists
+  file:
+    path: '{{ amq_online_tmp }}'
+    state: directory
+
+- name: Download example files
+  unarchive:
+    src: https://access.redhat.com/node/4306051/423/0/14663711
+    dest: '{{ amq_online_tmp }}'
+    remote_src: yes
+
+- name: Retrieve files
+  find:
+    paths: '{{ amq_online_tmp }}/install/components/example-plans/,{{ amq_online_tmp }}/install/components/example-authservices/'
+  register: install_files
+
+- name: Create Online Plan Examples
+  k8s:
+    state: present
+    namespace: openshift-operators
+    src: '{{ item }}'
+  with_items: "{{ install_files.files | map(attribute='path') | list }}"
+
+- name: Notify user if amq deployment failed
+  when: not r_address_crd.resources | list | length == 1
+  debug:
+    msg: "user.info: *** AMQ Online could not be installed ***"
+

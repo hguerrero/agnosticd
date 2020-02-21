@@ -164,6 +164,25 @@
   when: ("m4" in modules) and (r_amq_sub.resources | list | length == 0)
   include_tasks: install-amqstreams.yaml
 
+# Setup AMQ Online via operator
+- name: Look for amq online subscription
+  when: ("m4" in modules)
+  k8s_facts:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: amq-online
+    namespace: openshift-operators
+  register: r_amqonline_sub
+
+- name: show existing amq online sub
+  when: ("m4" in modules)
+  debug:
+    msg: "existing amq online sub: {{ r_amqonline_sub }}"
+
+- name: Create OpenShift Objects for AMQ (enmasse)
+  when: ("m4" in modules) and (r_amqonline_sub.resources | list | length == 0)
+  include_tasks: install-amqonline.yaml
+
 # setup pipelines
 - name: Look for pipelines subscription
   when: ("m4" in modules)
