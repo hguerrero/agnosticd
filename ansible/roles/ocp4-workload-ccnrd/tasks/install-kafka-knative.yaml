@@ -1,4 +1,13 @@
 ---
+# Setup Knative Kafka via operator
+- name: Create OpenShift Objects for amq streams
+  k8s:
+    state: present
+    merge_type:
+    - strategic-merge
+    - merge
+    definition: "{{ lookup('file', './files/kafka_knative_subscription.yaml' ) | from_yaml }}"
+
 # wait for kafka-knative CRD
 - name: Wait for Kafka Knative CRD
   k8s_facts:

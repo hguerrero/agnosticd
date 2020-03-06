@@ -6,10 +6,7 @@
     merge_type:
     - strategic-merge
     - merge
-    definition: "{{ lookup('file', item ) | from_yaml }}"
-  loop:
-  - ./files/amqstreams_subscription.yaml
-  - ./files/kafka_knative_subscription.yaml
+    definition: "{{ lookup('file', './files/amqstreams_subscription.yaml' ) | from_yaml }}"
 
 # wait for amq (kafka) CRDs
 - name: Wait for Kafka CRD
