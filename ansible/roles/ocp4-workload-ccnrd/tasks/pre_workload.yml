@@ -1,10 +1,10 @@
 ---
 # Implement your Pre Workload deployment tasks here
 
-- name: Ensuring AWS region is defined
-  fail:
-    msg: "This workload requires aws_region to be defined. Exiting..."
-  when: aws_region is not defined
+# - name: Ensuring AWS region is defined
+#   fail:
+#     msg: "This workload requires aws_region to be defined. Exiting..."
+#   when: aws_region is not defined
 
 - name: usercount debug
   debug:
@@ -13,7 +13,7 @@
 - name: create usernames
   set_fact:
     users: "{{ users | default([]) + ['user'+item | string] }}"
-  loop: "{{ range(1,((num_users | int) + 1)) | list }}"
+  loop: "{{ range(0,((num_users | int) + 1)) | list }}"
 
 # Figure out paths
 - name: extract api_url
@@ -41,9 +41,9 @@
   set_fact:
     route_subdomain: "{{ route_subdomain_r.resources[0].spec.domain | trim }}"
 
-- name: set bastion_fqdn
-  set_fact:
-    bastion_fqdn: "{{ subdomain_base }}"
+# - name: set bastion_fqdn
+#   set_fact:
+#     bastion_fqdn: "{{ subdomain_base }}"
 
 - name: debug values
   debug:
@@ -52,7 +52,7 @@
     - "console URL: {{ console_url }}"
     - "route subdomain: {{ route_subdomain }}"
     - "ocp_username: {{ ocp_username }}"
-    - "bastion host: {{ bastion_fqdn }}"
+    # - "bastion host: {{ bastion_fqdn }}"
 
 # Leave this as the last task in the playbook.
 - name: pre_workload tasks complete
