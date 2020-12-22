@@ -1,4 +1,5 @@
 #!/bin/bash
+#export GODEBUG=x509ignoreCN=0
 export OSP_PROJECT="{{ osp_project_name }}"
 export GUID="{{ guid }}"
 export ORIG_PWD=$(pwd)
@@ -50,9 +51,11 @@ build_bridges() {
   sudo nmcli connection add ifname baremetal type bridge con-name baremetal
   sudo nmcli con add type bridge-slave ifname "$MAIN_CONN" master baremetal
   sudo nmcli con down "Wired connection 1";sudo pkill dhclient;sudo dhclient baremetal
+  sudo nmcli con down "System eth0"
   sudo nmcli connection modify baremetal ipv4.addresses {{ hostvars['provision']['private_ip_address']}}/24 ipv4.method manual
   sudo nmcli connection modify baremetal ipv4.gateway 10.20.0.1
   sudo nmcli con down baremetal; sudo nmcli con up baremetal
+  sudo nmcli con down "System eth1"
 }
 
 setup_libvirt() {
@@ -142,10 +145,11 @@ set_disconnected() {
 
   sudo yum -y install podman httpd httpd-tools
   sudo mkdir -p /nfs/registry/{auth,certs,data}
-  sudo openssl req -newkey rsa:4096 -nodes -sha256 -keyout /nfs/registry/certs/domain.key -x509 -days 365 -out /nfs/registry/certs/domain.crt -subj "/C=US/ST=NorthCarolina/L=Raleigh/O=Red Hat/OU=Marketing/CN=provision.{{ guid}}.{{ kni_ocp_domain }}"
+  sudo openssl req -newkey rsa:4096 -nodes -sha256 -keyout /nfs/registry/certs/domain.key -x509 -days 365 -out /nfs/registry/certs/domain.crt -subj "/C=US/ST=NorthCarolina/L=Raleigh/O=Red Hat/OU=Marketing/CN=provision.{{ guid}}.{{ kni_ocp_domain }}" -addext "subjectAltName = DNS:provision.{{ guid }}.{{ osp_cluster_dns_zone }}" -addext "certificatePolicies = 1.2.3.4"
   sudo cp /nfs/registry/certs/domain.crt $(pwd)/domain.crt
   sudo chown {{ student_name }}:users $(pwd)/domain.crt
   sudo cp /nfs/registry/certs/domain.crt /etc/pki/ca-trust/source/anchors/
+  sudo cp /nfs/registry/certs/domain.crt /etc/pki/ca-trust/source/anchors/{{ guid }}.{{ osp_cluster_dns_zone }}.crt
   sudo update-ca-trust extract
 
   sudo htpasswd -bBc /nfs/registry/auth/htpasswd dummy dummy
@@ -247,6 +251,7 @@ grab_ipmi_ports() {
    PXEMAC=$(openstack --os-cloud=$OSP_PROJECT  port list --network $GUID-pxe-network|grep $NAME|grep "\-$NUMBER\-"|cut -d\| -f 4|sed 's/ //g')
    IPMIPORT=$(openstack --os-cloud=$OSP_PROJECT server show $NODE|grep ipmihost|cut -d\| -f3|cut -d, -f7|cut -d\: -f2|cut -d\' -f1)
    echo "$NODE $PXEMAC $IPMIPORT"
+   echo "$NODE $PXEMAC $IPMIPORT" >> $HOME/nodes.txt
    NODEBMC=$NODE"BMC"
    sed -i "s/$NODEBMC/$IPMIPORT/g" `pwd`/install-config.yaml
    sed -i "s/hardwareProfile.*/hardwareProfile\:\ openstack/g" `pwd`/install-config.yaml
@@ -302,6 +307,28 @@ prepare_node() {
   # sudo mount -o bind /nfs/libvirt/images /var/lib/libvirt/images/
   # sudo restorecon /var/lib/libvirt/images/
   touch /tmp/node-prepared
+}
+
+heal_installer() {
+  get_oc_bin
+  case $VERSION in
+    *nightly*) export RELEASE_IMAGE=$(curl -s https://mirror.openshift.com/pub/openshift-v4/clients/ocp-dev-preview/$VERSION/release.txt| grep 'Pull From: quay.io' | awk -F ' ' '{print $3}' | xargs) ;;
+    *) export RELEASE_IMAGE=$(curl -s https://mirror.openshift.com/pub/openshift-v4/clients/ocp/$VERSION/release.txt| grep 'Pull From: quay.io' | awk -F ' ' '{print $3}' | xargs) ;;
+  esac
+  export REVISION=`echo $VERSION | cut -d. -f3`
+  case $VERSION in
+    4.6*) oc adm release extract --registry-config "${PULLSECRET}" --command=$CMD --to "${EXTRACT_DIR}" ${RELEASE_IMAGE} ;;
+    4.5*)
+      if [[ $REVISION -ge 9 ]]
+      then
+        echo "Release is greater than 4.5.9, we can extract the prebuilt binary"
+        oc adm release extract --registry-config "${PULLSECRET}" --command=$CMD --to "${EXTRACT_DIR}" ${RELEASE_IMAGE}
+      else
+        build_installer
+      fi;;
+    *nightly*) build_installer ;;
+    *) oc adm release extract --registry-config "${PULLSECRET}" --command=$CMD --to "${EXTRACT_DIR}" ${RELEASE_IMAGE} ;;
+  esac
 }
 
 install_ocp() {
@@ -372,6 +399,7 @@ case $1 in
            esac
            install_ocp ;;
   cleanup) clean_all ;;
+  heal)    heal_installer ;;
   retry)   cleanup_deploy
            install_ocp ;;
   help)    echo "Usage : $0 ( prepare | install | cleanup | retry | help )"
